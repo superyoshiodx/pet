@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ペット配合確率シミュレーター</title>
+    <style>
+        body { font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif; background-color: #f0f2f5; color: #333; line-height: 1.6; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h1 { text-align: center; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .section { margin-bottom: 25px; padding: 20px; border: 1px solid #e1e4e8; border-radius: 8px; }
+        .section-title { font-weight: bold; margin-bottom: 15px; display: block; font-size: 1.1em; color: #444; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .candidate { border-top: 4px solid #3498db; background: #f8fbff; }
+        label { display: block; margin-bottom: 5px; font-size: 0.85em; color: #666; }
+        select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; background-color: #fff; cursor: pointer; }
+        input[type="number"] { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
+        
+        .result-area { margin-top: 15px; padding: 12px; background: #fff; border: 2px solid #3498db; border-radius: 6px; text-align: center; min-height: 50px; }
+        .prob-value { font-size: 1.3em; font-weight: bold; color: #e74c3c; }
+        .error-msg { color: #d9534f; font-weight: bold; font-size: 0.9em; }
+
+        /* 背景色定義 */
+        .rarity-1 { background-color: #ffccff !important; } 
+        .rarity-2 { background-color: #e0b0ff !important; } 
+        .rarity-3 { background-color: #ffff99 !important; } 
+        .rarity-4 { background-color: #d3d3d3 !important; } 
+        .rarity-5 { background-color: #add8e6 !important; } 
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>ペット配合確率シミュレーター</h1>
+
+    <div class="section" style="border-left: 5px solid #ff4757;">
+        <span class="section-title">🌟 理想ペットの受動ステータス（目標）</span>
+        <div class="grid" id="target-slots"></div>
+    </div>
+
+    <div class="section" style="border-left: 5px solid #2f3542;">
+        <span class="section-title">🧬 主親ペットの受動ステータス</span>
+        <div class="grid" id="main-parent-slots"></div>
+    </div>
+
+    <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+
+    <div id="candidates-container"></div>
+</div>
+
+<script>
+// スキルデータ設定
+const skillDefinitions = {
+    cat1: { weight: 2, prob: 0.05, class: "rarity-1", skills: ["全方位打撃","スーパーリーグ","如羽流行","多重発射","逆行制御術","全能制御術","重拳反撃","激怒狂斬","無限爆発打撃","爆裂コスモ","無限夢幻","風軌斬裂","天性の大爆発","急所直撃","速度超過禁止","アンテナ誘雷","神託の触れ","秘術の光輝"] },
+    cat2: { weight: 3, prob: 0.15, class: "rarity-2", skills: ["耐久軟弱","脆弱マスター","安定主義","重厚甲冑","長命比べ","紙防御","背後の刃","研鈍妖斬","中庸之道","単独侵攻","速いが鈍い","染毒矢尻","惰性気体","器用貧乏","進退窮まる","野良の味方","吉報を待つ","他損自利","利他自損","逆境同舟","克己複傷","上上下下"] },
+    cat3: { weight: 5, prob: 0.25, class: "rarity-3", skills: ["超絶通常攻撃","超反射反撃","集結超連撃","スーパープラス","完全不制御","強敵育我","正当防衛","反射無効","恨み十分","精密防衛","敵意一心","迂回作戦","異常状態免疫","快速治療","短気体質","寿命延長","銅塀鉄壁"] },
+    cat4: { weight: 5, prob: 0.25, class: "rarity-4", skills: ["手足愚鈍","反応緩慢","コチョコチョ","労倍攻半","足枷追加","不発弾","虚弱体質","底無深淵","徹夜残業","腰抜腑抜","力持たない"] },
+    cat5: { weight: 8, prob: 0.40, class: "rarity-5", skills: ["強化通常攻撃","反射反撃","キノコ連撃","能力技能","憤怒加算","鉄桶回避","強化された、行け","再生能力"] }
+};
+
+const skillMap = { "None": { weight: 0, prob: 0, class: "" } };
+for (let catId in skillDefinitions) {
+    const cat = skillDefinitions[catId];
+    cat.skills.forEach(name => {
+        skillMap[name] = { weight: cat.weight, prob: cat.prob, class: cat.class };
+    });
+}
+
+function nCr(n, r) {
+    if (r < 0 || r > n) return 0;
+    if (r === 0 || r === n) return 1;
+    let res = 1;
+    for (let i = 1; i <= r; i++) {
+        res = res * (n - i + 1) / i;
+    }
+    return res;
+}
+
+function createSelect(id) {
+    const select = document.createElement("select");
+    select.id = id;
+    select.onchange = function() {
+        this.className = skillMap[this.value].class;
+        calculateAll();
+    };
+    
+    const defaultOpt = document.createElement("option");
+    defaultOpt.value = "None";
+    defaultOpt.text = "- 未選択 -";
+    select.appendChild(defaultOpt);
+
+    for (let catId in skillDefinitions) {
+        const cat = skillDefinitions[catId];
+        const group = document.createElement("optgroup");
+        group.label = `W:${cat.weight} / P:${cat.prob * 100}%`;
+        cat.skills.forEach(name => {
+            const opt = document.createElement("option");
+            opt.value = name;
+            opt.text = name;
+            group.appendChild(opt);
+        });
+        select.appendChild(group);
+    }
+    return select;
+}
+
+// 初期配置
+const targetSlots = document.getElementById("target-slots");
+const mainSlots = document.getElementById("main-parent-slots");
+for (let i = 1; i <= 4; i++) {
+    targetSlots.appendChild(createSelect(`target_${i}`));
+    mainSlots.appendChild(createSelect(`main_${i}`));
+}
+
+const container = document.getElementById("candidates-container");
+for (let i = 1; i <= 4; i++) {
+    const section = document.createElement("div");
+    section.className = "section candidate";
+    section.innerHTML = `<span class="section-title">📋 候補親ペット ${i}</span>`;
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (let j = 1; j <= 4; j++) { grid.appendChild(createSelect(`cand_${i}_${j}`)); }
+    const probInput = document.createElement("div");
+    probInput.style.marginTop = "15px";
+    probInput.innerHTML = `<label>理想ペット発生確率</label><input type="number" id="base_prob_${i}" value="1.0" step="0.01" oninput="calculateAll()">`;
+    const resArea = document.createElement("div");
+    resArea.className = "result-area";
+    resArea.id = `result_${i}`;
+    section.appendChild(grid);
+    section.appendChild(probInput);
+    section.appendChild(resArea);
+    container.appendChild(section);
+}
+
+function calculateAll() {
+    const targets = [];
+    let targetW = 0, targetP = 0;
+    for (let i = 1; i <= 4; i++) {
+        const val = document.getElementById(`target_${i}`).value;
+        if (val !== "None") {
+            targets.push(val);
+            targetW += skillMap[val].weight;
+            targetP += skillMap[val].prob;
+        }
+    }
+
+    const mainSet = [];
+    for (let i = 1; i <= 4; i++) {
+        const val = document.getElementById(`main_${i}`).value;
+        if (val !== "None") mainSet.push(val);
+    }
+
+    for (let i = 1; i <= 4; i++) {
+        const candSet = [];
+        for (let j = 1; j <= 4; j++) {
+            const val = document.getElementById(`cand_${i}_${j}`).value;
+            if (val !== "None") candSet.push(val);
+        }
+        
+        const baseProb = parseFloat(document.getElementById(`base_prob_${i}`).value) || 0;
+        const parentPool = [...mainSet, ...candSet];
+        const resElement = document.getElementById(`result_${i}`);
+
+        // --- バリデーション：理想スキルの有無チェック ---
+        let missingSkills = targets.filter(skill => !parentPool.includes(skill));
+        
+        if (targets.length === 0) {
+            resElement.innerHTML = `<span style="color:#666;">理想ペットのスキルを選択してください</span>`;
+            continue;
+        }
+
+        if (missingSkills.length > 0) {
+            resElement.innerHTML = `
+                <div class="error-msg">⚠️ 発生不可</div>
+                <div style="font-size:0.8em; color:#666;">不足受動ステータス: ${missingSkills.join(", ")}</div>
+                <div class="prob-value">0.0000%</div>
+            `;
+            continue;
+        }
+
+        // --- 計算ロジック ---
+        const combined = Array.from(new Set(parentPool));
+        const n = combined.length;
+        let combinedW = 0;
+        combined.forEach(s => combinedW += skillMap[s].weight);
+
+        const cVal = nCr(n - 1, 3);
+        const step1 = (cVal * combinedW) === 0 ? 0 : targetW / (cVal * combinedW);
+        const step2 = targetP / 4;
+        const final = step1 * step2 * baseProb;
+
+        resElement.innerHTML = `期待確率: <br><span class="prob-value">${(final * 100).toFixed(6)}%</span>`;
+    }
+}
+</script>
+
+</body>
+</html>
